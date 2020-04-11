@@ -1,0 +1,13 @@
+
+type types map[reflect.Type]reflect.Type
+
+func (ts types) add(a, c Any) {
+	ts[reflect.TypeOf(a)] = reflect.TypeOf(c)
+}
+
+func (ts types) inst(a Any) Component {
+	ct := ts[reflect.TypeOf(a)]
+	cv := reflect.New(ct)
+	reflect.Indirect(cv).FieldByName("Args").Set(reflect.ValueOf(a))
+	return cv.Interface().(Component)
+}
