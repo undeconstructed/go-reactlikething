@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/undeconstructed/gooo/cmps"
 	"github.com/undeconstructed/gooo/tags"
 	"github.com/undeconstructed/gooo/web"
 )
@@ -12,17 +13,25 @@ type body struct {
 }
 
 type bodyComponent struct {
-	Args body
+	web.State
+	Args    body
+	counter int
+}
+
+func (c *bodyComponent) Mount() {
+	fmt.Printf("body mounting\n")
 }
 
 func (c *bodyComponent) Render() web.Output {
-	return tags.Div().With(
-		thing{Foo: "testing1"},
-		tags.Div().With(
-			thing{Foo: "testing2"},
+	fmt.Printf("body render: %v\n", c.Args)
+	return tags.Body().With(
+		tags.H1().With(
+			web.Text("Title"),
 		),
-		thing{Foo: "testing3"},
-		holder{Child: thing{Foo: "???"}},
+		cmps.Label{Text: fmt.Sprintf("foo count: %d", c.counter)},
+		tags.P().With(
+			web.Textf("count: %d", c.counter),
+		),
 		tags.P().With(
 			button{
 				Label:   "click me",
@@ -34,6 +43,8 @@ func (c *bodyComponent) Render() web.Output {
 
 func (c *bodyComponent) onButtonClick() {
 	fmt.Println("clicky!")
+	c.counter++
+	c.Update()
 }
 
 type holder struct {
@@ -42,6 +53,7 @@ type holder struct {
 }
 
 type holderComponent struct {
+	web.Component
 	Args holder
 }
 
@@ -57,6 +69,7 @@ type thing struct {
 }
 
 type thingComponent struct {
+	web.Component
 	Args thing
 }
 
@@ -73,6 +86,7 @@ type button struct {
 }
 
 type buttonComponent struct {
+	web.Component
 	Args button
 }
 
@@ -83,8 +97,6 @@ func (c *buttonComponent) Render() web.Output {
 }
 
 func main() {
-	sys := web.New()
-	sys.Define(bodyComponent{}, buttonComponent{}, holderComponent{}, thingComponent{})
-
-	sys.MainBody(body{})
+	web.Define(bodyComponent{}, buttonComponent{}, holderComponent{}, thingComponent{})
+	web.MainBody(body{})
 }

@@ -3,93 +3,46 @@ package web
 import (
 	"fmt"
 	"reflect"
-	"syscall/js"
 )
 
-// Any thing.
-type Any interface{}
-
-// Output is rendered stuff.
-type Output interface {
-	isOutput()
+type componentType struct {
+	aType reflect.Type
+	cType reflect.Type
 }
 
-type text struct {
-	s string
+func (ct componentType) match(c internalComponent) bool {
+	return reflect.TypeOf(c) == reflect.PtrTo(ct.cType)
 }
 
-func (*text) isOutput() {
-}
-
-// Text node
-func Text(s string) Output {
-	return &text{s: s}
-}
-
-// HTML is HTML output.
-type HTML struct {
-	tag      string
-	events   map[string]EventHandler
-	children []Output
-}
-
-// Tag tag
-func Tag(tag string) *HTML {
-	return &HTML{tag: tag}
-}
-
-// With adds children
-func (h *HTML) With(o ...Output) *HTML {
-	h.children = append(h.children, o...)
-	return h
-}
-
-// On defines an event handler
-func (h *HTML) On(event string, handler EventHandler) *HTML {
-	if h.events == nil {
-		h.events = map[string]EventHandler{}
+func (ct componentType) new(s State) internalComponent {
+	cv := reflect.New(ct.cType)
+	newCmp := cv.Interface().(internalComponent)
+	if st, ok := newCmp.(Stateful); ok {
+		st.set(s)
 	}
-	h.events[event] = handler
-	return h
+	return newCmp
 }
 
-func (*HTML) isOutput() {
+func (ct componentType) update(c internalComponent, args Any) {
+	cv := reflect.ValueOf(c)
+	reflect.Indirect(cv).FieldByName("Args").Set(reflect.ValueOf(args))
 }
 
-// Component can render itelf, and will persist in the node tree until it is unwanted.
-type Component interface {
-	Render() Output
+type typeRegistry map[reflect.Type]componentType
+
+func (ts typeRegistry) set(a, c reflect.Type) {
+	ts[a] = componentType{
+		aType: a,
+		cType: c,
+	}
 }
 
-// Definition is for component def types to self define.
-type Definition interface {
-	isOutput()
+func (ts typeRegistry) get(a Any) (componentType, bool) {
+	ct, exists := ts[reflect.TypeOf(a)]
+	return ct, exists
 }
 
-// EventHandler is
-type EventHandler func()
-
-type types map[reflect.Type]reflect.Type
-
-func (ts types) add(a, c Any) {
-	ts[reflect.TypeOf(a)] = reflect.TypeOf(c)
-}
-
-func (ts types) inst(a Any) Component {
-	ct := ts[reflect.TypeOf(a)]
-	cv := reflect.New(ct)
-	reflect.Indirect(cv).FieldByName("Args").Set(reflect.ValueOf(a))
-	return cv.Interface().(Component)
-}
-
-type node struct {
-	tag      string
-	text     string
-	cmp      Component
-	events   map[string]EventHandler
-	children []*node
-	next     *node
-}
+var types = typeRegistry{}
 
 func indent(depth int) {
 	for i := 0; i < depth; i++ {
@@ -97,38 +50,21 @@ func indent(depth int) {
 	}
 }
 
-func (n *node) printout(depth int) {
-	indent(depth)
-	fmt.Printf("tag: %s, text: %s, cmp: %v\n", n.tag, n.text, n.cmp)
-	for _, c := range n.children {
-		c.printout(depth + 1)
-	}
-}
-
-// System is core.
-type System struct {
-	types types
-	root  *node
-}
-
-// New news.
-func New() *System {
-	return &System{
-		types: types{},
-	}
-}
-
 // Define links args to components.
-func (s *System) Define(cmps ...Any) {
+func Define(cmps ...Any) {
 	for _, cmp := range cmps {
 		ct := reflect.TypeOf(cmp)
 		if ct.Kind() != reflect.Struct {
 			panic("cmp must be struct: " + ct.Name())
 		}
-		tic := reflect.TypeOf((*Component)(nil)).Elem()
+		tic := reflect.TypeOf((*internalComponent)(nil)).Elem()
 		if !reflect.PtrTo(ct).Implements(tic) {
-			panic("*cmp must implement Component: " + ct.Name())
+			panic("*cmp must be a Component: " + ct.Name())
 		}
+		// tir := reflect.TypeOf((*Renderer)(nil)).Elem()
+		// if !reflect.PtrTo(ct).Implements(tir) {
+		// 	panic("*cmp must implement Renderer: " + ct.Name())
+		// }
 		argsField, exists := ct.FieldByName("Args")
 		if !exists {
 			panic("cmp must have field Args: " + ct.Name())
@@ -137,90 +73,30 @@ func (s *System) Define(cmps ...Any) {
 		if dt.Kind() != reflect.Struct {
 			panic("def must be struct: " + ct.Name())
 		}
-		// for i := 0; i < dt.NumMethod(); i++ {
-		// 	f := dt.Method(i)
-		// 	fmt.Printf("m %v\n", f)
-		// }
-		// for i := 0; i < dt.NumField(); i++ {
-		// 	f := dt.Field(i)
-		// 	fmt.Printf("f %v\n", f)
-		// }
 		tid := reflect.TypeOf((*Definition)(nil)).Elem()
 		if !dt.Implements(tid) {
-			panic("def must have Definition: " + ct.Name())
+			panic("def must be a Definition: " + ct.Name())
 		}
-		// _, exists = dt.FieldByName("Definition")
-		// if !exists {
-		// 	panic("def must have Definition: " + ct.Name())
-		// }
-		s.types[dt] = ct
+		types.set(dt, ct)
 	}
 }
 
-// MainBody sets component root and then lives forever.
-func (s *System) MainBody(body Output) {
-	// make empty root
-	root := &node{}
-	// now reconcile and render through the tree
-	s.renderToNode(body, root)
-	// now put into the page
-	p := js.Global().Get("document").Get("body")
-	s.renderToPage(root, p)
+// MainBody renders the body - it be a body, or a def that always renders a body.
+func MainBody(body Output) {
+	var rootDef Definition
 
-	// root.printout(0)
-
-	select {}
-}
-
-func (s *System) renderToNode(out Output, n *node) {
-	switch v := out.(type) {
-	case *text:
-		n.text = v.s
+	switch v := body.(type) {
 	case *HTML:
-		n.tag = v.tag
-		for _, c := range v.children {
-			n2 := &node{}
-			n.events = v.events
-			n.children = append(n.children, n2)
-			s.renderToNode(c, n2)
+		if v.tag == "body" {
+			rootDef = Static{Out: body}
+		} else {
+			panic("must render a body")
 		}
 	case Definition:
-		// TODO = reuse component
-		c := s.types.inst(v)
-		n.cmp = c
-		out2 := c.Render()
-		s.renderToNode(out2, n)
-	default:
-		panic("fail")
+		rootDef = v
 	}
-}
 
-func (s *System) renderToPage(n *node, target js.Value) {
-	d := js.Global().Get("document")
-	makeEl := func(tag string) js.Value {
-		return d.Call("createElement", tag)
-	}
-	var inner func(n *node, p js.Value)
-	inner = func(n *node, p js.Value) {
-		if n.tag == "" {
-			if n.text != "" {
-				p.Set("textContent", n.text)
-			}
-			return
-		}
-		e := makeEl(n.tag)
-		for ev, h := range n.events {
-			fmt.Printf("ev %s h %v\n", ev, h)
-			wrapper := js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-				h()
-				return nil
-			})
-			e.Call("addEventListener", ev, wrapper)
-		}
-		for _, c := range n.children {
-			inner(c, e)
-		}
-		p.Call("append", e)
-	}
-	inner(n, target)
+	mainBody(rootDef)
+
+	select {}
 }

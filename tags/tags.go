@@ -4,6 +4,11 @@ import (
 	"github.com/undeconstructed/gooo/web"
 )
 
+// H1 is
+func H1() *web.HTML {
+	return web.Tag("h1")
+}
+
 // P is
 func P() *web.HTML {
 	return web.Tag("p")
