@@ -23,3 +23,13 @@ func Body() *web.HTML {
 func Div() *web.HTML {
 	return web.Tag("div")
 }
+
+// Button is
+func Button() *web.HTML {
+	return web.Tag("button")
+}
+
+// OL is
+func OL() *web.HTML {
+	return web.Tag("ol")
+}

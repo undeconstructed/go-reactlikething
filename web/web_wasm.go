@@ -43,6 +43,10 @@ func (de domElement) ReplaceChild(c1 domElement, c0 domElement) {
 	js.Value(de).Call("replaceChild", js.Value(c1), js.Value(c0))
 }
 
+func (de domElement) AddClass(c string) {
+	js.Value(de).Get("classList").Call("add", c)
+}
+
 func (de domElement) Listen(e string, f js.Func) {
 	js.Value(de).Call("addEventListener", e, f)
 }
@@ -181,19 +185,24 @@ func (n *tagNode) Update(out Output) {
 
 func (n *tagNode) Render() []*componentNode {
 	var childComponents []*componentNode
+
+	recurse := func(child Node) {
+		switch v := child.(type) {
+		case *componentNode:
+			childComponents = append(childComponents, v)
+		case *tagNode:
+			moreChildComponents := v.Render()
+			childComponents = append(childComponents, moreChildComponents...)
+		case *textNode:
+			v.Render()
+		}
+	}
+
 	if n.children == nil {
 		// shortcut first render
 		for _, c := range n.def.children {
 			child := makeNode(c)
-			switch v := child.(type) {
-			case *componentNode:
-				childComponents = append(childComponents, v)
-			case *tagNode:
-				moreChildComponents := v.Render()
-				childComponents = append(childComponents, moreChildComponents...)
-			case *textNode:
-				v.Render()
-			}
+			recurse(child)
 			n.children = append(n.children, child)
 		}
 	} else {
@@ -202,15 +211,7 @@ func (n *tagNode) Render() []*componentNode {
 			newDef := n.def.children[i]
 			if child.Accept(newDef) {
 				child.Update(newDef)
-				switch v := child.(type) {
-				case *componentNode:
-					childComponents = append(childComponents, v)
-				case *tagNode:
-					moreChildComponents := v.Render()
-					childComponents = append(childComponents, moreChildComponents...)
-				case *textNode:
-					v.Render()
-				}
+				recurse(child)
 			} else {
 				// this part of the tree is broken
 				panic("failed to update html tree")
@@ -233,6 +234,9 @@ func (n *tagNode) Layout(parent domElement) {
 				return nil
 			})
 			n.jso.Listen(e, wrapper)
+		}
+		for _, c := range n.def.classes {
+			n.jso.AddClass(c)
 		}
 		parent.Append(n.jso)
 	}
@@ -316,6 +320,14 @@ func (s *sys) mount(node *componentNode) {
 	s.mountCh <- node
 }
 
+func addStyleSheet(url string) {
+	css := js.Value(createElement("link"))
+	css.Set("rel", "stylesheet")
+	css.Set("type", "text/css")
+	css.Set("href", url)
+	document.Get("head").Call("append", css)
+}
+
 func mainBody(def Definition) {
 	renderCh := make(chan *componentNode, 100)
 	mountCh := make(chan *componentNode, 100)
@@ -377,8 +389,11 @@ func renderComponent(s *sys, n *componentNode) {
 			// fmt.Printf("rerender\n")
 			s.render(n)
 		}
-		cmp := ct.new(State{render: rerender})
-		n.cmp = cmp
+		n.cmp = ct.new(State{render: rerender})
+
+		if ir, ok := n.cmp.(Initer); ok {
+			ir.Init()
+		}
 
 		// to be mounted later, after layout performed
 		s.mount(n)

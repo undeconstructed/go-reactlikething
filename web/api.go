@@ -32,6 +32,7 @@ func Textf(format string, a ...interface{}) Output {
 // HTML is HTML output.
 type HTML struct {
 	tag      string
+	classes  []string
 	events   []eventHandler
 	children []Output
 }
@@ -44,6 +45,12 @@ func Tag(tag string) *HTML {
 // With children
 func (h *HTML) With(o ...Output) *HTML {
 	h.children = append(h.children, o...)
+	return h
+}
+
+// Class or classes to add
+func (h *HTML) Class(c ...string) *HTML {
+	h.classes = append(h.classes, c...)
 	return h
 }
 
@@ -68,6 +75,11 @@ type Component struct {
 
 // implement Component.
 func (*Component) isComponent() {
+}
+
+// Initer needs to be setup, implement it on components.
+type Initer interface {
+	Init()
 }
 
 // Renderer can render itelf, implement it on components.

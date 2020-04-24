@@ -81,6 +81,10 @@ func Define(cmps ...Any) {
 	}
 }
 
+func AddStyleSheet(url string) {
+	addStyleSheet(url)
+}
+
 // MainBody renders the body - it be a body, or a def that always renders a body.
 func MainBody(body Output) {
 	var rootDef Definition
